@@ -18,12 +18,10 @@ output:
         - 10 2AFC
     - BART
         - 50 Balloons, Max pumps = 20
-    - "Investment task" using Rieskamp 2008 Gambles (which is really just repeated decisions between risky gambles.)
-        - 180 Gambles
+    - "Investment task" using the mixed Rieskamp 2008 Gambles (which is really just repeated decisions between risky gambles.)
+        - 60 Mixed Gambles (out of the original 180)
     
 - Competitive bonus (only for competitive social condition)
-    - Small: e.g., 10\% of average individual earnings)
-    - Medium: eg., 50\% of individual earnings)
     - Extreme: All or nothing contest
 
 ###Within:

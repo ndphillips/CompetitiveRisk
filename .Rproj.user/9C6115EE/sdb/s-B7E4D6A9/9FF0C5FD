@@ -2,14 +2,14 @@
     "collab_server" : "",
     "contents" : "---\ntitle: \"Competition and Risky Decision Making\"\nauthor: \"Nathaniel Phillips\"\ndate: \"4 April 2017\"\noutput:\n  pdf_document: default\n  html_document: default\n---\n\n\n## Current Study Design\n\n\n###Between:\n\n- 3 tasks\n    - Holt and Laurey\n        - 10 2AFC\n    - BART\n        - 50 Balloons, Max pumps = 20\n    - \"Investment task\" using the mixed Rieskamp 2008 Gambles (which is really just repeated decisions between risky gambles.)\n        - 60 Mixed Gambles (out of the original 180)\n    \n- Competitive bonus (only for competitive social condition)\n    - Extreme: All or nothing contest\n\n###Within:\n\n- Social condition\n    - Solitary: Only individual rewards matter\n    - Competitive: Competitive bonus matters\n    \n- Order\n    - Solitary then competitive\n    - Competitive then solitary\n\nMeasures:\n\n- Change in risk taking behavior between solitary and competitive condition\n- Effect of magnitude of competitive bonus.\n\n\n#### 4 April 2017\n\n- For each H&L gamble pair, calculate a game theoretic equilibrium\n- Then, try the same giving a risk neutral player playing against a risk-seeking player\n",
     "created" : 1491312063902.000,
-    "dirty" : true,
+    "dirty" : false,
     "encoding" : "UTF-8",
     "folds" : "",
     "hash" : "4001011806",
     "id" : "9FF0C5FD",
-    "lastKnownWriteTime" : 1492690190,
-    "last_content_update" : 1492692270827,
-    "path" : "~/Dropbox/manuscripts/CompetitiveBART/rmds/studydesign.Rmd",
+    "lastKnownWriteTime" : 1492695282,
+    "last_content_update" : 1492695282712,
+    "path" : "~/Dropbox/manuscripts/CompetitiveRisk/rmds/studydesign.Rmd",
     "project_path" : "rmds/studydesign.Rmd",
     "properties" : {
         "tempName" : "Untitled2"

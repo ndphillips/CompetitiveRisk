@@ -1,0 +1,8 @@
+name: Publish Document
+title:
+account: rpubs
+server: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/260338/a2b9eb3de2d647eaa5fc6473f69df11a
+bundleId: https://api.rpubs.com/api/v1/document/260338/a2b9eb3de2d647eaa5fc6473f69df11a
+url: http://rpubs.com/ndphillips/260338
+when: 1490027266.59101

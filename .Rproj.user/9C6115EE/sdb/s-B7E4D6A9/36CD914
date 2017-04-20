@@ -1,0 +1,21 @@
+{
+    "collab_server" : "",
+    "contents" : "@article{holt2002risk,\n  title={Risk aversion and incentive effects},\n  author={Holt, Charles A and Laury, Susan K and others},\n  journal={American economic review},\n  volume={92},\n  number={5},\n  pages={1644--1655},\n  year={2002},\n  publisher={American Economic Association}\n}",
+    "created" : 1491247168854.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3538678436",
+    "id" : "36CD914",
+    "lastKnownWriteTime" : 1491247198,
+    "last_content_update" : 1491247198229,
+    "path" : "~/Dropbox/manuscripts/CompetitiveBART/rmds/bibliography.bib",
+    "project_path" : "rmds/bibliography.bib",
+    "properties" : {
+        "tempName" : "Untitled2"
+    },
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "text"
+}

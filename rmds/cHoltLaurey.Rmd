@@ -1,0 +1,451 @@
+---
+title: "cHoltLaury"
+author: "Nathaniel Phillips"
+date: "20 March 2017"
+output:
+  html_document: default
+  pdf_document: default
+bibliography: bibliography.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align='center')
+setwd(rprojroot::is_rstudio_project$find_file())
+source("r/01_setup.R")
+```
+
+# Questions
+
+- How could competitive affect choices in the Holt and Laury (2002) gambles?
+
+
+# Conclusions
+
+- For each gamble pair, the option with the highest EV is *always* the option with the highest probability of winning. This is independent of the variance of options.
+- In other words, whether you're competing with someone or not, it is always better to choose the high EV option. In gambles 1-4 this will be the safe option. In gambles 5-10, this will be the risky option.
+- Whether you are risk averse or not, the larger the competitive bonus is, the more likely you should 'act' risk neutral.
+- The effects of bonuses are, surprisingly, larger for risk-averse participants than risk-seeking participants.
+- If both players are risk neutral, than there is an equilibrium for each gamble pair favoring the high-EV option (the safe option for pairs 1-5, and the risky option for pairs 6-10).
+
+## Holt and Laury Gambles
+
+Here are the 10 gambles from Holt & Laury (2002)
+
+```{r, echo = FALSE}
+hl.df <- data.frame("index" = 1:10)
+hl.df <- hl.df %>% mutate(
+  a.x = rep(2, 10),
+  a.px = seq(.1, 1, by = .1),
+  a.y = rep(1.6, 10),
+  a.py = seq(.9, 0, by = -.1),
+  b.x = rep(3.85, 10),
+  b.px = seq(.1, 1, by = .1),
+  b.y = rep(.1, 10),
+  b.py = seq(.9, 0, by = -.1),
+  a.ev = a.x * a.px + a.y * a.py,
+  b.ev = b.x * b.px + b.y * b.py,
+  a.var = a.px * (a.x - a.ev) ^ 2 + a.py * (a.y - a.ev) ^ 2,
+  b.var = b.px * (b.x - b.ev) ^ 2 + b.py * (b.y - b.ev) ^ 2,
+  ev.diff = a.ev - b.ev,
+  high.ev.option = ifelse(ev.diff > 0, "a", "b")
+)
+knitr::kable(hl.df, digits = 2)
+```
+
+Here are the gambles represented in a coordinate space:
+
+```{r, echo = FALSE, fig.width = 6, fig.height = 6}
+plot(1, xlim = c(0, 4), ylim = c(0, 4), type = "n", xlab = "Variance", ylab = "EV", main = "Holt & Laury Gambles")
+grid()
+for(i in 1:10) {
+  
+  points(hl.df$a.var[i], hl.df$a.ev[i], col = "blue", pch = 16)
+  points(hl.df$b.var[i], hl.df$b.ev[i], col = "red", pch = 16)
+
+  segments(hl.df$a.var[i], hl.df$a.ev[i], hl.df$b.var[i],hl.df$b.ev[i], col = gray(.5))
+
+  text(hl.df$b.var[i], hl.df$b.ev[i], labels = i, pos = 3)  
+}
+```
+
+
+### Introducing competition
+
+For each gamble pair, I calculated the probability that gamble A would beat gamble B given a one shot game. For example, for pair 4, the probability that gamble A (the safe gamble) wins is $.40 \times 0.6 + 0.60 \times 0.60 = 0.60$. Here are the results
+
+```{r}
+hlcomp.fun <- function(hl.gn = NULL, a.df = NULL, b.df = NULL) {
+
+
+hl.df <- structure(list(index = 1:10, a.x = c(2, 2, 2, 2, 2, 2, 2, 2, 
+2, 2), a.px = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 
+1), a.y = c(1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6), 
+  a.py = c(0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0), 
+  b.x = c(3.85, 3.85, 3.85, 3.85, 3.85, 3.85, 3.85, 3.85, 3.85, 
+  3.85), b.px = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 
+  1), b.y = c(0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 
+  0.1), b.py = c(0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 
+  0), a.ev = c(1.64, 1.68, 1.72, 1.76, 1.8, 1.84, 1.88, 1.92, 
+  1.96, 2), b.ev = c(0.475, 0.85, 1.225, 1.6, 1.975, 2.35, 
+  2.725, 3.1, 3.475, 3.85), a.var = c(0.0144, 0.0256, 0.0336, 
+  0.0384, 0.04, 0.0384, 0.0336, 0.0256, 0.0144, 0), b.var = c(1.265625, 
+  2.25, 2.953125, 3.375, 3.515625, 3.375, 2.953125, 2.25, 1.265625, 
+  0)), class = "data.frame", .Names = c("index", "a.x", "a.px", 
+"a.y", "a.py", "b.x", "b.px", "b.y", "b.py", "a.ev", "b.ev", 
+"a.var", "b.var"), row.names = c(NA, -10L))
+
+if(is.finite(hl.gn)) {
+  
+  a.df <- data.frame(outcome = c(hl.df$a.x[hl.gn], hl.df$a.y[hl.gn]), 
+                  prob = c(hl.df$a.px[hl.gn], hl.df$a.py[hl.gn]))
+  
+  b.df <-  data.frame(outcome = c(hl.df$b.x[hl.gn], hl.df$b.y[hl.gn]), 
+                  prob = c(hl.df$b.px[hl.gn], hl.df$b.py[hl.gn]))
+  
+}
+
+p.x.wins.v <- sapply(1:nrow(a.df), FUN = function(i) {
+  
+  if(sum(b.df$prob[b.df$outcome < a.df$outcome[i]]) > 0) {
+  result <- a.df$prob[i] * sum(b.df$prob[b.df$outcome < a.df$outcome[i]])
+  } else {result <- 0}
+  
+  return(result)
+    
+  
+})
+
+p.x.wins <- sum(p.x.wins.v)
+
+return(p.x.wins)
+
+}
+```
+
+```{r}
+hl.df$p.a.wins <- sapply(1:10, hlcomp.fun)
+knitr::kable(hl.df[,c("index", "ev.diff", "high.ev.option", "p.a.wins")], digits = 2)
+```
+
+- Interestingly, it looks like the high EV gamble is always the gamble with the higher probability of winning. For pairs 1 through 4, the safe gamble is both the high EV gamble and the gamble with the highest probability of winning. For pairs 5 through 10, the risky gamble is both the high EV gamble and the gamble with the highest probability of winning.
+
+
+### Introducing risk aversion and risk seeking
+
+To introduce risk aversion and risk seeking, we transform the outcomes by $\frac{x^{1-r}}{1-r}$ according to [@holt2002risk]. r < - indicates risk seeking, r = 0 indicates risk neutrality, and r > 0 indicates risk aversion.
+
+```{r, echo = FALSE, fig.align='center', fig.width = 6, fig.height = 6, fig.cap= "Utility functions"}
+outcomes <- seq(0, 3, .1)
+
+
+plot(1, xlim = c(0, 4), ylim = c(0, 5), type = "n", main = "Utility functions from Holt and Laury", xlab = "outcome", ylab = "Utility")
+grid()
+r.vals <- c(0, -.7, .7)
+
+for(x in r.vals) {
+
+  lines(outcomes, outcomes ^ (1-x) / (1 - x), 
+        col = yarrr::piratepal("basel", trans = .2)[which(x == r.vals)], lwd= 2)
+  
+}
+
+legend("topleft", legend = paste0("r = ", r.vals), col = yarrr::piratepal("basel", trans = .2)[1:length(r.vals)], lwd =2)
+
+
+```
+
+
+
+
+About 70\% of the subjects from [@holt2002risk] were risk averse. Here are results for someone with high risk aversion of r = .7. This person switches to the risky gamble at option 8:
+
+```{r, echo = FALSE}
+r <- .7
+
+ra.hl.df <- hl.df %>% mutate(
+  a.eu = (a.x ^ (1 - r)) / (1 - r) * a.px + (a.y ^ (1 - r)) / (1 - r) * a.py,
+  b.eu = (b.x ^ (1 - r)) / (1 - r) * b.px + (b.y ^ (1 - r)) / (1 - r) * b.py,
+  eu.diff = a.eu - b.eu,
+  high.eu.option = ifelse(a.eu > b.eu, "a", "b")
+) %>% select(index,  a.eu, b.eu, eu.diff, high.eu.option)
+
+knitr::kable(ra.hl.df, digits = 2, caption = "Option expected utilities and decisions for risk averse subjects with r = .7")
+```
+
+
+```{r, echo = FALSE}
+# Given a value of r and competitive bonus, when will the agent switch to the risky option?
+get.switch.point <- function(r = 0, 
+                             bonus = 0) {
+  
+  if(bonus == 0) {
+  
+y <- hl.df %>% 
+  
+  mutate(
+  a.eu = (a.x ^ (1 - r)) / (1 - r) * a.px + (a.y ^ (1 - r)) / (1 - r) * a.py ,
+  b.eu = (b.x ^ (1 - r)) / (1 - r) * b.px + (b.y ^ (1 - r)) / (1 - r) * b.py ,
+  a.eu.pb = a.eu,
+  b.eu.pb = b.eu,
+  eu.diff = a.eu - b.eu,
+  eu.pb.diff = a.eu.pb - b.eu.pb,
+  high.eu.option = ifelse(a.eu > b.eu, "a", "b"),
+  high.eu.pb.option = ifelse(a.eu.pb > b.eu.pb, "a", "b"))
+  } else {
+    
+y <- hl.df %>% 
+  
+  mutate(
+  a.eu = (a.x ^ (1 - r)) / (1 - r) * a.px + (a.y ^ (1 - r)) / (1 - r) * a.py,
+  b.eu = (b.x ^ (1 - r)) / (1 - r) * b.px + (b.y ^ (1 - r)) / (1 - r) * b.py,
+  a.eu.pb = (a.x ^ (1 - r)) / (1 - r) * a.px + (a.y ^ (1 - r)) / (1 - r) * a.py + (bonus ^ (1 - r)) / (1 - r) * p.a.wins,
+  b.eu.pb = (b.x ^ (1 - r)) / (1 - r) * b.px + (b.y ^ (1 - r)) / (1 - r) * b.py + (bonus ^ (1 - r)) / (1 - r) * (1 - p.a.wins),
+  eu.diff = a.eu - b.eu,
+  eu.pb.diff = a.eu.pb - b.eu.pb,
+  high.eu.option = ifelse(a.eu > b.eu, "a", "b"),
+  high.eu.pb.option = ifelse(a.eu.pb > b.eu.pb, "a", "b"))
+}
+ 
+
+p.risky <- mean(y$high.eu.pb.option == "b")
+
+ output <- list("df" = y, "p.risky" = p.risky)
+  
+ return(output)
+ 
+}
+```
+
+
+
+### Adding bonuses
+
+Now we can add different bonus magnitudes and see how it affects choices:
+
+### Risk averse: r = .7, bonus = 0
+
+Risk averse participant with no bonus
+
+```{r, echo = FALSE}
+x <- get.switch.point(r = .7, bonus = 0)
+
+knitr::kable(x$df[c("index", "a.eu", "b.eu", "a.eu.pb", "b.eu.pb", "eu.pb.diff", "high.eu.option", "high.eu.pb.option")], digits = 2, caption = "EU calculations with r = 0.7 and reward bonus of 0")
+```
+
+
+### Risk averse: r = .7, bonus = 1
+
+Risk averse participant with a moderate reward bonus of 1.
+
+```{r, echo = FALSE}
+x <- get.switch.point(r = .7, bonus = 1)
+
+knitr::kable(x$df[c("index", "a.eu", "b.eu", "a.eu.pb", "b.eu.pb", "eu.pb.diff", "high.eu.option", "high.eu.pb.option")], digits = 2, caption = "EU calculations with r = 0.7 and reward bonus of 1")
+```
+
+
+### Risk seeking: r = -.7, bonus = 0
+
+Risk seeking participant with no bonus
+
+
+```{r, echo = FALSE}
+x <- get.switch.point(r = -.7, bonus = 0)
+
+knitr::kable(x$df[c("index", "a.eu", "b.eu", "a.eu.pb", "b.eu.pb", "eu.pb.diff", "high.eu.option", "high.eu.pb.option")], digits = 2, caption = "EU calculations with r = -0.7 and reward bonus of 0")
+```
+
+
+### Risk seeking: r = -.7, bonus = 1
+
+Risk seeking participant with a moderate reward bonus of 1
+
+```{r, echo = FALSE}
+x <- get.switch.point(r = -.7, bonus = 1)
+
+knitr::kable(x$df[c("index", "a.eu", "b.eu", "a.eu.pb", "b.eu.pb", "eu.pb.diff", "high.eu.option", "high.eu.pb.option")], digits = 2, caption = "EU calculations with r = -0.7 and reward bonus of 1")
+```
+
+
+### Risk seeking: r = -.7, bonus = 5
+
+Risk seeking participant with a large reward bonus of 5.
+
+```{r, echo = FALSE}
+x <- get.switch.point(r = -.7, bonus = 5)
+
+knitr::kable(x$df[c("index", "a.eu", "b.eu", "a.eu.pb", "b.eu.pb", "eu.pb.diff", "high.eu.option", "high.eu.pb.option")], digits = 2, caption = "EU calculations with r = -0.7 and reward bonus of 5")
+```
+
+
+
+```{r, echo = FALSE, fig.align='center', fig.width = 6, fig.height = 6, fig.cap="Proportion of risky choices given magnitude of a competitive bonus"}
+bonuses <- seq(0, 10, .2)
+
+rs <- sapply(bonuses, FUN = function(x) {
+  
+  y <- get.switch.point(r = -.7, bonus = x)
+  
+  return(mean(y$df$high.eu.pb.option == "b"))
+  
+  
+})
+ra <- sapply(bonuses, FUN = function(x) {
+  
+  y <- get.switch.point(r = .7, bonus = x)
+  
+  return(mean(y$df$high.eu.pb.option == "b"))
+  
+  
+})
+
+
+plot(1, xlim = c(0, 10), ylim = c(0, 1), type = "n", xlab = "Bonus Amount", ylab = "Proportion of risky Choices")
+grid()
+
+abline(h = .5, lty = 2)
+lines(bonuses, rs, col = "red", lwd = 2)
+lines(bonuses, ra, col = "green", lwd = 2)
+
+legend("topright", c("r = .7, risk averse", "r = -.7, risk seeking"), col = c("green", "red"), lty = 1)
+
+```
+
+
+
+
+```{r, eval = FALSE, echo = FALSE}
+
+
+# Calculate switch points for several values of r and bonus
+switch.point.df <- expand.grid(r = c(0, .5, .95),
+                               bonus = c(0, .5, 1, 2),
+                               switch.point = NA)
+
+switch.point.df$switch.point <- sapply(1:nrow(switch.point.df), FUN = function(x) {
+  
+  get.switch.point(r = switch.point.df$r[x],
+                   bonus = switch.point.df$bonus[x])$switch.point
+  
+})
+
+
+# Plot results
+
+plot(1, xlim = c(0, 5), ylim = c(4, 10), type = "n", xlab = "Competitive Bonus", 
+     ylab = "Switch to Risky Gamble")
+
+for(r.i in unique(switch.point.df$r)) {
+  
+  with(subset(switch.point.df, r == r.i), 
+       lines(bonus, switch.point, type = "b", 
+             col = yarrr::piratepal("basel")[which(r.i == unique(switch.point.df$r))],
+             lwd = 2))
+  
+}
+
+legend("topright", legend = paste0("r = ", unique(switch.point.df$r)), 
+       col = yarrr::piratepal("basel"), lty = 1, lwd = 2)
+
+
+
+```
+
+
+
+## HL Game theoretic
+
+
+```{r, echo = FALSE}
+gt.fun <- function(a.df, 
+                   b.df, hl = NULL) {
+
+if(is.null(hl) == FALSE) {
+  
+a.df <- data.frame(outcomes = c(hl.df$a.x[hl], hl.df$a.y[hl]),
+                   probs = c(hl.df$a.px[hl], hl.df$a.py[hl]))
+
+  b.df <- data.frame(outcomes = c(hl.df$b.x[hl], hl.df$b.y[hl]),
+                   probs = c(hl.df$b.px[hl], hl.df$b.py[hl]))
+}
+  
+# a.df <- data.frame(outcomes = c(1, 3), probs = c(.3, .7))
+# b.df <- data.frame(outcomes = c(0, 5), probs = c(.8, .2))
+
+
+gambles.n <- 2
+
+outcome.mtx <- expand.grid("PX" = LETTERS[1:gambles.n],
+                           "PY" = LETTERS[1:gambles.n], stringsAsFactors = FALSE)
+
+
+for(i in 1:nrow(outcome.mtx)) {
+  
+  PX.option <- outcome.mtx$PX[i]
+  PY.option <- outcome.mtx$PY[i]
+
+  if(PX.option == PY.option) {p.X.wins <- .5} else {
+    
+    if(PX.option == "A") {x.df <- a.df}
+    if(PX.option == "B") {x.df <- b.df}
+
+    if(PY.option == "A") {y.df <- a.df}
+    if(PY.option == "B") {y.df <- b.df}
+    
+  p.X.wins <- sum(sapply(1:nrow(a.df), FUN = function(x) {
+    
+    
+    X.wins.outright <- x.df$probs[x] * sum(y.df$probs[y.df$outcomes < x.df$outcomes[x]])
+    Ties <- x.df$probs[x] * sum(y.df$probs[y.df$outcomes == x.df$outcomes[x]])
+
+    result <- X.wins.outright + .5 * Ties
+    
+    return(result)
+    
+  }))
+  
+  }
+  
+  outcome.mtx$p.x.wins[i] <- p.X.wins
+    
+}
+  
+
+# Reshape outcome.mtx
+
+outcome.mtx <- cbind(outcome.mtx$p.x.wins[1:gambles.n], outcome.mtx$p.x.wins[(gambles.n + 1):nrow(outcome.mtx)])
+
+colnames(outcome.mtx) <- c("Y.A", "Y.B")
+rownames(outcome.mtx) <- c("X.A", "X.B")
+
+return(outcome.mtx)
+
+}
+
+```
+
+
+
+- For each gamble pair, calculate a 2 x 2 table calculating the probability of winning. Look for game theoretic equilibriums
+
+For example, here is a 2 x 2 competition table for gamble pair 3:
+
+```{r, echo = FALSE}
+knitr::kable(gt.fun(hl = 3))
+```
+
+- For gamble pair 3, there is an equilibrium where both players choose option A (the safe option, high EV option).
+
+Here is the the table for gamble pair 7:
+
+```{r, echo = FALSE}
+knitr::kable(gt.fun(hl = 7))
+```
+
+- For game pair 7, there is an equilibrum where both players choose option B (the risky, high EV option)
+
+### Conclusion
+
+- Assuming both players are risk neutral, there is an equilibrium for each gamble pair where both players should choose the high EV option
+
+## References

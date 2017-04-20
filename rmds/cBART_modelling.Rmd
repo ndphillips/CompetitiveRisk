@@ -1,0 +1,995 @@
+---
+title: "Competitive BART Modelling"
+author: "Nathaniel Phillips"
+date: "20 December 2016"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+setwd(rprojroot::is_rstudio_project$find_file())
+source("r/01_setup.R")
+```
+
+# Questions
+
+- How does competition affect decisions in an escalating risk task?
+- Sn which environments does competition improve performance and when does it hurt?
+- How does feedback affect competitive dynamics?
+
+# The Task
+
+A game consists of $k$ balloons. Each balloon has an underlying, unknown, popping value $pop_{k}$ ranging from 1 to $pop_{max}$. A player pumps a balloon $x_{k}$ times. If $x_{k} < pop_{k}$, then the player earns $x_{k}$ points. If $x_{k} = pop_{k}$, then the balloon pops and the player earns no points for that balloon.
+
+In the *solitary* game, player's try to earn as many points as possible across all $k$ balloons.
+
+In the *competitive* game, the player who ends the game with the most points wins a fixed bonus while the other (loser) earns nothing.
+
+## Game
+
+
+| Term          | Definition | Support |
+|---------------|------------------------|--------:|
+| $k$          | Balloon index   |   [1, $k_{max}$] |
+| $x_{k}$     | Pumps on balloon $k$       |  [1, $x_{max}$] |
+| $y_{k}$ | Outcome of a balloon $k$ (either 1 for a pop, or 0 for no pop)  | {0, 1} |
+| $v_{k}$     | Earnings of a balloon $k$. If $y_{k} = 1$, then $v_{k} = 0$. If $y_{k} = 0} then $v_{k} = x_{k}$| {0, $x_{k}$}|
+
+We use $k$ to represent balloons and $x_{k}$ to represent pumps within a balloon. Thus, each game contains $k_{max}$ balloons. The maximum number of pumps on a balloon is $x_{max}$. Thus, $x$ ranges from 1 to $x_{max}$.
+
+We use $y_{k}$ to represent the outcome of a balloon $k$. $y_{k}$ can be 0, indicating no pop, or 1, indicating a pop.
+
+We use $v_{k}$ to represent the earnings of balloon k. If $y_{k} = 1$, then $v_{k}$ = 0. If $y_{k} = 0$ (indicating a non-popped balloon), then $v_{k} = x_{k}$
+
+For example, consider a subject on balloon 3 who pumps 15 times and then stops the game. This would be represented by $k = 3$, $x_{k} = 15$, $y_{k} = 0$, and $v_{k} = 15$.
+
+# Modelling
+
+| Term          | Definition | Support |
+|---------------|------------------------|--------:|
+| $p_{\mu, k}$     | Mean pumping target on balloon k | [-Inf, +Inf] |
+| $p_{\sigma, k}$     | Standard deviation of pumping target on balloon k | [0, +Inf] |
+| $\hat{p}_{k}$     | Target pumping value for balloon k | {1, 2, ..., 100} |
+| $Ip_{k}$     | Individual positive updating rate for balloon k| {-50, +50}|
+| $In_{k}$     | Individual negative updating rate for balloon k| {-50, +50}|
+| $Cp_{k}$     | Competitive positive updating rate for balloon k| {-50, +50}|
+| $Cn_{k}$     | Competitive negative updating rate for balloon k| {-50, +50}|
+
+
+
+# Target pumping distribution
+
+We model decisions using a *target fluctuating reinforcement learning model*. The model assumes that, on every balloon, people have a (Normal) *target distribution* of pumping values characterized by a mean $p_{\mu}$ and standard deviation $p_{\sigma}$. Players begin each balloon by randomly selecting a *sample target* from their distribution. Players will then pump until their sample target (assuming it does not pop!).
+
+The mean and standard deviation of players' target distrubtions reflects their learning and risk-sensitivity. A risk-seeking (or high exploration) subject will have a high $p_{\mu}$ value, while a risk-avoidiing (or low exploration) subject will have a low $p_{\mu}$ value. For example, Figure X shows, at the start of a balloon, the distribution of pumping values for a conservative subject (in blue), and a liberal subject (in red).
+
+```{r fig.width = 8, fig.height = 5, echo = FALSE, fig.align='center'}
+max.pumps <- 25
+
+plot(1, xlim = c(0, max.pumps), ylim = c(0, .35), type = "n", 
+     xlab = "Pumps", ylab = "Probability", xaxt = "n", yaxt = "n", bty = "n", 
+     main = "Target pumping distribution examples")
+
+axis(side = 1, at = 1:max.pumps, lty = 0)
+
+bart.lik.fun <- function(pump.mean = 10, 
+                         pump.sd = 5) {
+  
+ lik.o <- dnorm(x = 1:max.pumps, mean = pump.mean, sd = pump.sd)
+ lik.o <- lik.o / sum(lik.o)
+  
+ return(lik.o)
+ 
+}
+
+segments(x0 = 1:max.pumps - .1, y0 = 0, x1 = 1:max.pumps - .1, y1 = bart.lik.fun(5, 2), col = "lightblue", lwd = 5)
+
+text(5, .27, labels = "Risk-Averse\nmean = 5, sd = 2")
+
+segments(x0 = 1:max.pumps + .1, y0 = 0, x1 = 1:max.pumps + .1, y1 = bart.lik.fun(15, 4), col = "lightcoral", lwd = 5)
+text(15, .27, labels = "Risk-Seeking\nMean = 15, sd = 4")
+```
+
+
+At the start of each balloon $k$, players have an internal pumping distribution characterized by a mean $p_{\mu, k}$ and standard deviation $p_{\sigma, k}$ (for now, we assume that the distribution is a censored, discrete Normal distribution but this should change later). For example, if on balloon $k = 5$ a player could have a mean pumping value of 5 and a standard deviation of 2, represented by $p_{\mu, k = 5} = 10$, and  $p_{\sigma, k = 5} = 2$. 
+
+To play a balloon, players begin by randomly sampling a *pumping target* $\hat{p}_{k}$ from their internal pumping distribution. Thus, $\hat{p}_{k} \sim  N(p_{\mu, k}, p_{\sigma, k})$. The player then pumps until the balloon bursts, or he reaches $\hat{p}_{k}$.
+
+## Dynamics
+
+The model assumes that subjects adjust their values of $p_{\mu, k}$ and standard deviation $p_{\sigma, k}$ as function of 3 factors: *Balloon feedback*, *Competitive feedback*, and *Time.*
+
+Formally, $p_{\mu, k + 1} = p_{\mu, k} + I_{k} + C_{k}$, where $I_{k}$ is the adjustment due to individual feedback on balloon $k$, and $C_{k}$ is the adjustment due to competitive feedback on balloon $k$.
+
+### Individual Feedback $I_{k}$
+
+$I_{k}$ is the adjustment people make to their pumping tendencies as a function of the outcome of balloons, specifically, whether or not the balloon popped: $y_{k}$. This feedback, combined with a person's individual feedback sensitivities $Sp$ and $Sn$, will determine $I_{k}$.
+
+If a balloon $k$ does *not* burst ($y_{k} = 0$), then $I_{k} \ge 0$. Thus, $p_{\mu}$ will *increase* (or stay the same): i.e.; $p_{\mu, k+1} \geq p_{\mu, k}$
+
+If a balloon $k$ *does* burst ($y_{k} = 1$), then $I_{k} \le 0$. Thus, $p_{\mu}$ will *decrease* (or stay the same): i.e.; $p_{\mu, k+1} \leq p_{\mu, k}$
+
+The value change $I_{k}$ depends on feedback (i.e.; whether the balloon popped or not) and individual differences in balloon feedback sensitivity paramterized as $Sp$ and $Sn$ which indicate sensitivity to positive and negative feedback respectively.
+
+If $y_{k} = 0$, $I_{k} = Ip$, where $Ip$ is an individual's sensitivity to receiving *positive* individual feedback. For example $Ip = .5$ means that, after a non-popped balloon, a participant *increases* her mean pumping rate $p_{\mu}$ by .5.
+
+If $y_{k} = 1$, $I_{k} = In$, where $In$ is an individual's sensitivity to receiving *negative* individual feedback. For example $Ip = -1.0$ means that, after a popped balloon, a participant *decreases* her mean pumping rate $p_{\mu}$ by 1.
+
+There are good psychological reasons to expect that people have different sensitivities to positive and negative feedback. Specifically, we could expect a high negative sensitivity bias reflecting *loss aversion*.
+
+For simplicity, we assume that $Ip$ and $In$ are stable within a participant over time. However, future models might take time into account by, for example, decreasing the magnitude of $Ip$ and $In$ over time.
+
+# Solitary Simulation
+
+To see how values of $Ip$ and $In$ influence pumping behavior, we conducted a simulation:
+
+```{r}
+### Solitary Simulation Code
+
+library(dplyr)
+library(yarrr)
+library(snowfall)
+library(snow)
+
+# ibart.update.fun
+ibart.update.fun <- function(balloon.k,         # Balloon number
+                             balloon.max,       # Maxiumum number of balloons
+                             prior.m,           # Prior mean
+                             prior.o,           # Prior outcome
+                             ind.pos.ur = 1,    # Ip: Positive updating rate
+                             ind.neg.ur = 2,     # In: Negative updating rate
+                             alpha = 1) {  
+
+if(prior.o == 0) {
+  
+  new.m <- prior.m - ind.neg.ur
+  
+} else {
+  
+  new.m <- prior.m + ind.pos.ur
+  
+}
+    
+  return(new.m)
+   
+}
+
+ibart.sim <- function(bpop.vec = sample(100,              # Popping times
+                                        size = 50, 
+                                        replace = TRUE),
+                      ind.pos.ur = 2,                    # Positive updating rate
+                      ind.neg.ur = 5,                   # Negative updating rate
+                      pump.m.start = 20,                      # Starting pump.mean
+                      pump.s.start = 2,                 # Starting pump.sd
+                      pump.max = 99
+                      ) {                  # Maximum pumps
+
+  balloons.n <- length(bpop.vec)
+
+  # Set up storage
+  
+  result <- as.data.frame(matrix(NA, nrow = length(bpop.vec), ncol = 8))
+  names(result) <- c("balloon", "p.mu", "p.target", "pop.time", "p.end", "pop", "points", "points.cum")
+  result$balloon <- 1:balloons.n
+  result$p.mu[1] <- pump.m.start
+  
+  for(i in 1:balloons.n) {
+
+    # Current means
+    if(i == 1) {p.mu.i <- pump.m.start} else {p.mu.i <- result$p.mu[i]}
+
+    # Get samples
+    p.target.i <- round(rnorm(1, mean = p.mu.i, sd = pump.s.start), 0)
+    if(p.target.i < 1) {p.target.i <- 1}
+    
+    # Current popping time
+    poptime.i <- bpop.vec[i]
+    
+    # Determine outcome
+    
+    if(p.target.i < poptime.i) { # No Pop!
+      
+      p.end.i <- p.target.i
+      points.i <- p.target.i
+      pop.i <- 0
+      
+    }
+    
+    if(p.target.i >= poptime.i) { # Pop!
+      
+      p.end.i <- poptime.i
+      points.i <- 0
+      pop.i <- 1
+
+    }
+    
+    #  Update pumping distributino
+    p1.m.new <- ibart.update.fun(prior.m = p.mu.i,
+                                 prior.o = points.i,
+                                 ind.pos.ur = ind.pos.ur,
+                                 ind.neg.ur = ind.neg.ur)
+
+    # Catch extreme values
+    if(p1.m.new > pump.max) {p1.m.new <- pump.max}
+    if(p1.m.new < 1) {p1.m.new <- 1}
+
+    # Write results
+    result$p.target[i] <- p.target.i
+    result$pop.time[i] <- poptime.i
+    result$p.end[i] <- p.end.i
+    result$pop[i] <- pop.i
+    result$points[i] <- points.i
+
+    if(i < balloons.n) {result$p.mu[i + 1] <- p1.m.new}
+  
+    } # End ballooon loop
+    
+    # Done, summarise results
+    result$points.cum <- cumsum(result$points)
+
+    return(result)
+}
+
+# Some plotting code
+plot.ibart <- function(x, ylim = NULL, ...) {
+  
+  n.balloons <- nrow(x)
+  
+  if(is.null(ylim)) {ylim = c(0, 100)}
+  
+  plot(1, xlim = c(1, n.balloons), ylim = ylim, type = "n", xaxt = "n", 
+       xlab = "Balloon", ylab = "Mean Pumping Time", ...)
+  
+  axis(1, seq(1, n.balloons, 2))
+  
+  # MEAN PUMPING RATES
+  
+  points(x$balloon, x$p.mu, type = "b")
+  
+  # Means for unpopped balloons
+  
+  points(x$balloon[x$pop == 0], x$p.mu[x$pop == 0], col = "seagreen4", pch = 16)
+  
+    # Points for popped balloons
+  
+  points(x$balloon[x$pop == 1], x$p.mu[x$pop == 1], col = "lightcoral", pch = 16)
+  
+  
+  # ACTUAL outcomes
+  
+  points(x$balloon[x$pop == 0], x$p.end[x$pop == 0], col = "seagreen4")
+    points(x$balloon[x$pop == 1], x$p.end[x$pop == 1], col = "lightcoral")
+
+    # Legend
+    
+    legend("topleft", legend = c("Mean", "Actual"), pch = c(16, 1), col = gray(.1), bty = "n")
+    
+  
+}
+```
+
+### Solitary Sim 1: Individuals with sensitivity biases
+
+Here are simulations of people with different sensitivity biases. All start with a mean pumping rate of 20 ($p_{\mu, 1} = 20$). However while A is unbiased ($Ip = In$), B has a negative bias, while C has a positive bias.
+
+```{r fig.width = 10, fig.height = 4}
+par(mfrow = c(1, 3))
+
+set.seed(100)
+unbiased <- ibart.sim(pump.m.start = 20, 
+                   ind.pos.ur = 2, 
+                   ind.neg.ur = 2)
+plot.ibart(unbiased, main = "A: Unbiased\nIp = +2, In = -2")
+abline(h = 50, lty = 2)
+
+set.seed(100)
+negbias <- ibart.sim(pump.m.start = 20, 
+                   ind.pos.ur = 2, 
+                   ind.neg.ur = 10)
+plot.ibart(negbias, main = "B: Negative Bias\nIp = +2, In = -10")
+abline(h = 50, lty = 2)
+
+set.seed(100)
+posbias <- ibart.sim(pump.m.start = 20, 
+                   ind.pos.ur = 10, 
+                   ind.neg.ur = 2)
+plot.ibart(posbias, main = "C: Positive Bias\nIp = +10, In = -2")
+abline(h = 50, lty = 2)
+```
+
+Here, we can see that having a negativity bias leads to low mean pumping times relative to optimal values. A negative bias here could reflect *loss aversion*.
+
+
+### Solitary Sim 2: Aggregate
+
+Next we conducted a series of simulations to see how positive and negative updating rates relate to pumping behavior and performance. We conducted 200 simulations for every combination of positive and negative updating rates in the set 0, 2, 5, 10. In each simulation we assume that players have a starting mean pumping rate $p_{\mu}$ of 20.
+
+```{r eval = FALSE, echo = FALSE}
+# SOLITARY SAMPLING SIMULATION 2
+# Takes about 5 minutes to run in parallel
+
+# sol.sim.dm
+# Simulation design matrix
+sol.sim.dm <- expand.grid(ind.pos.ur = c(0, 2, 5, 10),
+                          ind.neg.ur = c(0, 2, 5, 10),
+                          sim = 1:200)
+
+# sol.sim.fun
+# Solitary simulation function
+sol.sim.fun <- function(i) {
+  
+  print(i)
+  
+  ind.pos.ur.i <- sol.sim.dm$ind.pos.ur[i]
+  ind.neg.ur.i <- sol.sim.dm$ind.neg.ur[i]
+
+  sim.result.i <- ibart.sim(ind.pos.ur = ind.pos.ur.i,
+                            ind.neg.ur = ind.neg.ur.i,
+                            pump.m.start = 20,                # Starting pump.mean
+                            pump.s.start = 2,                 # Starting pump.sd
+                            pump.max = 99)
+  
+  return(sim.result.i)
+  
+}
+
+# Run in parallel?
+parallel <- TRUE
+
+# Run Sequential
+if(parallel == FALSE) {
+  sol.sim.ls <- lapply(1:nrow(sol.sim.dm), sol.sim.fun)
+  }
+
+# Run Parallel
+if(parallel == TRUE) {
+library(snow)
+library(snowfall)
+snowfall::sfInit(parallel = TRUE, cpus = 4)
+snowfall::sfExportAll()
+sol.sim.ls <- snowfall::sfClusterApplySR(1:nrow(sol.sim.dm), fun = sol.sim.fun, perUpdate = 1)
+}
+
+# Organize pumping values by trial
+for(i in 1:length(sol.sim.ls)) {
+  print(i)
+  if(i == 1) {pump.by.trial <- matrix(sol.sim.ls[[i]]$p.mu, nrow = 1, ncol = nrow(sol.sim.ls[[i]]))}
+  if(i > 1) {pump.by.trial <- rbind(pump.by.trial, sol.sim.ls[[i]]$p.mu)}
+
+}
+
+save(sol.sim.ls, sol.sim.dm, pump.by.trial, file = paste0(rprojroot::is_rstudio_project$find_file(),"/data/solsimls.RData"))
+```
+
+Here are the main results. In general, we find that when positive and negative updating rates are equal, players' $p_{\mu}$ values approach the optimal value of 50 over time. However, if $Ip > In$, then $p_{\mu}$ values drift towards values greater than 50. Similarly, if $Ip < In$, then $p_{\mu}$ values drift towards values less than 50.
+
+```{r fig.width = 10, fig.height = 10, echo = FALSE,fig.align='center'}
+# Get sol.sim.ls, sol.sim.dm, pump.by.trial
+load(file = paste0(rprojroot::is_rstudio_project$find_file(),"/data/solsimls.RData"))
+
+ind.neg.ur.vals <- unique(sol.sim.dm$ind.neg.ur)
+ind.pos.ur.vals <- unique(sol.sim.dm$ind.pos.ur)
+
+col.vec <- yarrr::piratepal("xmen", trans = .1)
+
+par(mfrow = c(2, 2))
+
+for(i in 1:length(ind.neg.ur.vals)) {
+  
+  plot(1, xlim = c(0, 50), ylim = c(0, 100), type = "n", xlab = "Balloon", ylab = "Mean Pumping rate", main = paste0("Negative UR = ", ind.neg.ur.vals[i]))
+  
+  abline(h = 50)
+  
+  legend("topleft", legend = paste0("Pos UR = ", ind.pos.ur.vals), 
+         lty = 1:4, bty = "n", col = col.vec[1:4], lwd = 2)
+  
+  for(j in 1:length(ind.pos.ur.vals)) {
+    
+    dat.i <- pump.by.trial[sol.sim.dm$ind.pos.ur == ind.pos.ur.vals[j] & 
+                             sol.sim.dm$ind.neg.ur == ind.neg.ur.vals[i],]
+    
+    mean.dat.i <- colMeans(dat.i)
+    
+    lines(1:50, mean.dat.i, lty = j, col = col.vec[j], lwd = 2) 
+  
+    }
+}
+```
+
+
+# Competitive Feedback $C_{k}$
+
+$C_{k}$ is the adjustment people make to their pumping tendencies as a function of their competitive feedback. That is, how well they perform relative to their competitor. This feedback, combined with a person's competitive feedback sensitivities $Cp$ and $Cn$, will determine $C_{k}$.
+
+### Competitive Rounds
+
+Unlike Individual feedback, which necessarily occurs on every trial, we assume that competitive feedback occurs in *rounds*. That is, feedback about a competitor's performance comes after every $r$ balloons.
+
+For example, consider a game with 100 balloons. A round might consist of $r = 10$ balloons. Thus, after every 10 balloons, a player learns how many points his competitor earned in the past 10 balloons.
+
+Once a player received competitive feedback, she adjustes her mean pumping rate by $C_{k}$. In general, if the player did better than his opponent, then he either increases his pumping rate (or it does not change). That is, $C_{k} \geq 0$. However, if he did worse than his opponent, then his pumping change depends on how many balloons he has popped. If he popped many balloons, he decreases his pumping rate. If he did *not* pop many balloons, then he *increases* his pumping rate.
+
+Formally, we define $C_{k}$ as follows. Let $rv_{i}$ be a player's earnings in round i, and $comp_rv_{i}$ be his competitor's earnings in round i.
+
+If  $rv_{i} < comp_rv_{i}$, then $C_{k}$ = $Cp$.
+
+If $rv_{i} \ge comp_rv_{i}$, then one of two things can occur:
+
+- If the player popped *many* balloons in the previous round (e.g.; > 50%), then $C_{k} = CnA$, where $CnA \le 0$.
+- If the player popped *few* balloons (e.g.; < 50%), then $C_{k} = CnB$, where $CnB \ge 0$
+
+## Competition Simulation
+
+```{r, echo = FALSE}
+# COMPETITIVE BART SIMULATION FUNCTIONS
+
+# Player's mean pump rate is a function of..
+#   prior.m :         prior mean
+#   ind.prior.o:   individual recent outcomes (0 = pop, x > 0 means earned points)
+#   comp.prior.o:  competitor's recent outcomes
+#   ind.pos.ur:       solitary updating rates when no pop
+#   ind.neg.ur:       solitary cupdating rates when pop
+#   comp.pos.ur:      competitive updating rates when beat opp
+#   comp.neg.ur:      competitive updating rates when lose to opp
+
+cbart.update.fun <- function(prior.m = 20,
+                             ind.prior.o = 0,
+                             comp.prior.o = NULL,
+                             ind.pos.ur = 1,
+                             ind.neg.ur = 1,
+                             comp.pos.ur = 0,
+                             comp.neg.ur = 2) {
+
+  
+  # If there is no competitive feedback
+  if(is.null(comp.prior.o)) {
+    
+    if(ind.prior.o[length(ind.prior.o)] == 0) {
+      
+      new.m <- prior.m - ind.neg.ur
+      
+    } else {
+      
+      new.m <- prior.m + ind.pos.ur
+      
+    }
+    
+  }
+  
+  # If there is competitive feeback
+  if(is.null(comp.prior.o) == FALSE) {
+    
+    # I LOST this round
+    if(sum(comp.prior.o) >= sum(ind.prior.o)) {
+      
+      # If I have popped lots of balloons
+      
+      if(mean(ind.prior.o == 0) >= .5) {
+        
+        new.m <- prior.m - comp.neg.ur
+        
+      }
+      # If I have NOT popped lots of balloons
+      
+      if(mean(ind.prior.o == 0) < .5) {
+        
+        new.m <- prior.m + comp.neg.ur
+        
+      }
+      
+    }
+    
+    # I WON this round...update by comp.pos.ur
+    
+    if(sum(comp.prior.o) < sum(ind.prior.o)) {
+      
+      new.m <- prior.m + comp.pos.ur
+      
+    }
+    
+  }
+ 
+  return(new.m)
+   
+}
+
+
+cbart.sim <- function(bpop.vec = sample(100, 
+                                        size = 100, 
+                                        replace = TRUE),
+                      ind.pos.ur = c(2, 2),
+                      ind.neg.ur = c(5, 5),
+                      comp.pos.ur = c(0, 0),
+                      comp.neg.ur = c(10, 0),
+                      start.m = c(20, 20),
+                      start.s = c(4, 4),
+                      ff = 10
+) {
+# 
+
+#   
+  balloons.n <- length(bpop.vec)
+  feedback.times <- seq(0, balloons.n, by = ff)
+  
+  p1.ind.pos.ur <- ind.pos.ur[1]
+  p2.ind.pos.ur <- ind.pos.ur[2]
+  
+  p1.ind.neg.ur <- ind.neg.ur[1]
+  p2.ind.neg.ur <- ind.neg.ur[2]
+  
+  p1.comp.pos.ur <- comp.pos.ur[1]
+  p2.comp.pos.ur <- comp.pos.ur[2]
+  
+  p1.comp.neg.ur <- comp.neg.ur[1]
+  p2.comp.neg.ur <- comp.neg.ur[2]
+  
+  
+  # Set up storage
+  
+  p1.result <- as.data.frame(matrix(NA, nrow = length(bpop.vec), ncol = 6))
+  p2.result <- as.data.frame(matrix(NA, nrow = length(bpop.vec), ncol = 6))
+  
+  names(p1.result) <- c("balloon", "p.mu", "p.target", "p.end", "pop", "points")
+  names(p2.result) <- c("balloon", "p.mu", "p.target", "p.end", "pop", "points")
+  
+  p1.result$balloon <- 1:balloons.n
+  p2.result$balloon <- 1:balloons.n
+  
+  p1.result$group <- rep(1:(length(feedback.times) - 1), each = ff)
+  p2.result$group <- rep(1:(length(feedback.times) - 1), each = ff)
+
+  for(i in 1:balloons.n) {
+
+    group.current <- which(feedback.times == i) - 1
+  
+    # Current popping time
+    
+    pop.i <- bpop.vec[i]
+    
+    p1.result$pop[i] <- pop.i
+    p2.result$pop[i] <- pop.i
+    
+    # Current means
+    if(i == 1) {p1.p.mu <- start.m[1]} else {p1.p.mu <- p1.result$p.mu[i]}
+    if(i == 1) {p2.p.mu <- start.m[2]} else {p2.p.mu <- p2.result$p.mu[i]}
+    
+    # Write
+    p1.result$p.mu[i] <- p1.p.mu
+    p2.result$p.mu[i] <- p2.p.mu
+    
+    # Get samples
+    
+    p1.s <- round(rnorm(1, mean = p1.p.mu, sd = start.s[1]), 0)
+    p2.s <- round(rnorm(1, mean = p2.p.mu, sd = start.s[2]), 0)
+    
+    if(p1.s < 1) {p1.s <- 1}
+    if(p2.s < 1) {p2.s <- 1}
+    
+    
+    # Write
+    p1.result$p.target[i] <- p1.s
+    p2.result$p.target[i] <- p2.s
+    
+    # Determine outcome
+    
+    if(p1.s < pop.i) {
+      
+      p1.result$p.end[i] <- p1.s
+      p1.result$pop[i] <- 0
+      p1.result$points[i] <- p1.s
+      
+    }
+    
+    if(p1.s >= pop.i) {
+      
+      p1.result$p.end[i] <- pop.i
+      p1.result$pop[i] <- 1
+      p1.result$points[i] <- 0
+      
+    }
+    
+    if(p2.s < pop.i) {
+      
+      p2.result$p.end[i] <- p2.s
+      p2.result$pop[i] <- 0
+      p2.result$points[i] <- p2.s
+      
+    }
+    
+    if(p2.s >= pop.i) {
+      
+      p2.result$p.end[i] <- pop.i
+      p2.result$pop[i] <- 1
+      p2.result$points[i] <- 0
+      
+      
+    }
+    
+    # Individual updating
+    
+    if((i %in% feedback.times) == FALSE) {
+    
+    p1.m.new <- cbart.update.fun(prior.m = p1.p.mu,
+                                 ind.prior.o = p1.result$points[i],
+                                 ind.pos.ur = p1.ind.pos.ur,
+                                 ind.neg.ur = p1.ind.neg.ur,
+                                 comp.pos.ur = p1.comp.pos.ur,
+                                 comp.neg.ur = p1.comp.pos.ur
+                                 )
+    
+    p2.m.new <- cbart.update.fun(prior.m = p2.p.mu,
+                                 ind.prior.o = p2.result$points[i],
+                                 ind.pos.ur = p2.ind.pos.ur,
+                                 ind.neg.ur = p2.ind.neg.ur,
+                                 comp.pos.ur = p2.comp.pos.ur,
+                                 comp.neg.ur = p2.comp.pos.ur
+    )
+    }
+    
+    if((i %in% feedback.times) == TRUE) {
+      
+      p1.m.new <- cbart.update.fun(prior.m = p1.p.mu,
+                                   ind.prior.o = p1.result$points[p1.result$group == group.current],
+                                   comp.prior.o = p2.result$points[p2.result$group == group.current],
+                                   ind.pos.ur = p1.ind.pos.ur,
+                                   ind.neg.ur = p1.ind.neg.ur,
+                                   comp.pos.ur = p1.comp.pos.ur,
+                                   comp.neg.ur = p1.comp.neg.ur
+      )
+      
+      p2.m.new <- cbart.update.fun(prior.m = p2.p.mu,
+                                   ind.prior.o = p2.result$points[p2.result$group == group.current],
+                                   comp.prior.o = p1.result$points[p1.result$group == group.current],
+                                   ind.pos.ur = p2.ind.pos.ur,
+                                   ind.neg.ur = p2.ind.neg.ur,
+                                   comp.pos.ur = p2.comp.pos.ur,
+                                   comp.neg.ur = p2.comp.neg.ur
+      )
+      
+    }
+    
+    # Catch extreme values
+    
+    if(p1.m.new > 99) {p1.m.new <- 99}
+    if(p2.m.new > 99) {p2.m.new <- 99}
+    
+    if(p1.m.new < 1) {p1.m.new <- 2}
+    if(p2.m.new < 1) {p2.m.new <- 2}
+      
+    if(i < balloons.n) {
+    p1.result$p.mu[i + 1] <- p1.m.new
+    p2.result$p.mu[i + 1] <- p2.m.new
+    
+    }
+  }
+    
+    # Done, summarise results
+    
+    p1.result$points.cum <- cumsum(p1.result$points)
+    p2.result$points.cum <- cumsum(p2.result$points)
+    
+     
+    return(list(p1.result, p2.result))
+    
+}
+
+plot.cbart <- function(x, ...) {
+  
+  play <- x[[1]]
+  comp <- x[[2]]
+  
+  n.balloons <- nrow(play)
+  
+  
+  plot(1, xlim = c(1, n.balloons), ylim = c(1, 100), type = "n", xaxt = "n", 
+       xlab = "Balloon", ylab = "Mean Pumping Time", ...)
+  
+  axis(1, seq(1, n.balloons, 2))
+  
+  # MEAN PUMPING RATES
+  
+  lines(play$balloon, play$p.mu)
+  lines(comp$balloon, comp$p.mu, lty = 2)
+
+  
+  legend("topleft", legend = c("player", "competitor"), lty = c(1, 2))
+  
+}
+```
+
+Here are two players with negative individual biases who ignore competitive information ($Cn = Cp = 0$). Competitive feedback is given at trials with points. Here we see no effect of competitive feedback on pumping rates.
+
+```{r, fig.width = 8, fig.height = 5}
+set.seed(100)
+x <- cbart.sim(ind.pos.ur = c(1, 1),
+               ind.neg.ur = c(5, 5),
+               comp.pos.ur = c(0, 0),
+               comp.neg.ur = c(0, 0), 
+               ff = 10)
+
+plot.cbart(x, main = "Ignore Competition\nPlayer Cn = Cp = 0")
+points(seq(10, 100, 10), x[[1]]$p.mu[seq(10, 100, 10)])
+abline(h = 50, lty = 2)
+```
+
+Now we explore a case where the main player has a large $Cn = 30$ value. Here, we can see that on trial 40, the player increases his mean pumping rate by 30 to just above 50 while the competitor stays at the same mean pumping rate. While final points are not shown in this graph, we can assume that because the agent has a brief period of pumping values close to 50 (the optimal), that this agent should outperform his competitor.
+
+```{r, fig.width = 8, fig.height = 5}
+set.seed(100)
+x <- cbart.sim(ind.pos.ur = c(1, 1),
+               ind.neg.ur = c(2, 2),
+               comp.pos.ur = c(0, 0),
+               comp.neg.ur = c(30, 0), 
+               ff = 10)
+
+plot.cbart(x, main = "Attend to Competition\nPlayer Cp = +30")
+points(seq(10, 100, 10), x[[1]]$p.mu[seq(10, 100, 10)])
+abline(h = 50, lty = 2)
+```
+
+## Two competitive players
+
+Now let's consider two competitive players, each with moderate $Cn = 10$ values. Here, we can see that both players increase their pumping rate towards 50
+
+```{r, fig.width = 8, fig.height = 5}
+set.seed(100)
+x <- cbart.sim(ind.pos.ur = c(1, 1),
+               ind.neg.ur = c(2, 2),
+               comp.pos.ur = c(0, 0),
+               comp.neg.ur = c(10, 10), 
+               ff = 10)
+
+plot.cbart(x, main = "Attend to Competition\nBoth CN = +10")
+points(seq(10, 100, 10), x[[1]]$p.mu[seq(10, 100, 10)])
+abline(h = 50, lty = 2)
+```
+
+Now let's look at a simulation. The results below are mean pumping rates across both players.
+
+```{r, eval = FALSE, echo = FALSE}
+# COMPETITIVE BART SIMULATION
+# Result is comp.sim.dm
+
+# Competitive simulation design matrix
+comp.simA.dm <- expand.grid(my.comp.neg.ur = c(0, 5, 10),     # Player A Cn
+                           comp.comp.neg.ur = c(0, 5, 10),   # Player B Cn
+                           my.comp.pos.ur = 0,                  # Player A Cp
+                           comp.comp.pos.ur = 0,                # Player B Cp
+                           my.ind.pos.ur = c(1),             # Player A Ip
+                           comp.ind.pos.ur = c(1),           # Player B Ip
+                           my.ind.neg.ur = c(2),             # Player A In
+                           comp.ind.neg.ur = c(2),           # Player B In
+                           ff = c(5, 10, 20),                   # r (round length)
+                           sim = 1:250)
+
+comp.simA.dm[c("my.target.mean", "my.target.sd", "my.pop.mean", "my.points",
+              "comp.target.mean", "comp.target.sd", "comp.pop.mean", "comp.points",
+              "group.points", "win")] <- NA
+
+# Competitive simulation function
+comp.simA.fun <- function(i) {
+  
+    my.comp.pos.ur.i <- comp.simA.dm$my.comp.pos.ur[i]
+    comp.comp.pos.ur.i <- comp.simA.dm$comp.comp.pos.ur[i]
+    my.comp.neg.ur.i <- comp.simA.dm$my.comp.neg.ur[i]
+    comp.comp.neg.ur.i <- comp.simA.dm$comp.comp.neg.ur[i]
+    my.ind.pos.ur.i <- comp.simA.dm$my.ind.pos.ur[i]
+    comp.ind.pos.ur.i <- comp.simA.dm$comp.ind.pos.ur[i]
+    my.ind.neg.ur.i <- comp.simA.dm$my.ind.neg.ur[i]
+    comp.ind.neg.ur.i <- comp.simA.dm$comp.ind.neg.ur[i]
+    ff.i <- comp.simA.dm$ff[i]
+  
+  result.i <- cbart.sim(ind.pos.ur = c(my.ind.pos.ur.i, comp.ind.pos.ur.i),
+                        ind.neg.ur = c(my.ind.neg.ur.i, comp.ind.neg.ur.i),
+                        comp.pos.ur = c(my.comp.pos.ur.i, comp.comp.pos.ur.i),
+                        comp.neg.ur = c(my.comp.neg.ur.i, comp.comp.neg.ur.i),
+                        ff = ff.i)
+  
+  result.df <- data.frame("sim" = rep(i, nrow(result.i[[1]])),
+                          "ff" = rep(ff.i, nrow(result.i[[1]])),
+                          "my.comp.neg.ur" = my.comp.neg.ur.i,
+                          "comp.comp.neg.ur" = comp.comp.neg.ur.i,
+                          "balloon" = result.i[[1]]$balloon,
+                          "p1.p" = result.i[[1]]$p.mu,
+                          "p2.p" = result.i[[2]]$p.mu)
+
+  return(result.df)
+  
+}
+
+# Run simulation
+library(snowfall)
+snowfall::sfInit(parallel = TRUE, cpus = 8)
+snowfall::sfExportAll()
+sim.result.ls <- snowfall::sfClusterApplySR(1:nrow(comp.simA.dm), fun = comp.simA.fun, perUpdate = 1)
+
+comp.simA.dm <- do.call(rbind, sim.result.ls)
+
+
+# Save result
+save(comp.simA.dm, file = paste0(rprojroot::is_rstudio_project$find_file(),"/data/comp_simA_dm.RData"))
+```
+
+```{r fig.width = 8, fig.height = 5}
+load(paste0(rprojroot::is_rstudio_project$find_file(),"/data/comp_simA_dm.RData"))
+
+sim.agg <- comp.simA.dm %>% group_by(ff, my.comp.neg.ur, comp.comp.neg.ur, balloon) %>%
+  summarise(
+    p1.p.mean = mean(p1.p),
+    p2.p.mean = mean(p2.p),
+    N = n()
+  )
+
+
+with(subset(sim.agg, ff == 5 & my.comp.neg.ur == 0 & comp.comp.neg.ur == 0), plot(balloon, p1.p.mean, ylim = c(0, 100), type = "l", main = "Effect of competitive sensitivity to mean pumping rates", lwd = 2))
+with(subset(sim.agg, ff == 5 & my.comp.neg.ur == 5 & comp.comp.neg.ur == 5), points(balloon, p2.p.mean, type = "l", col = "blue", lwd = 2))
+with(subset(sim.agg, ff == 5 & my.comp.neg.ur == 10 & comp.comp.neg.ur == 10), points(balloon, p2.p.mean, type = "l", col = "red", lwd = 2))
+abline(h = 50, lty = 2)
+
+legend("topleft", legend = c("Cn = 0", "Cn = 5", "Cn = 10"), col = c("black", "blue", "red"), lty = 1, lwd = 2)
+
+```
+
+- When competitors have non-zero competitive updating rates, they simultaneously increase their pumping rates over time.
+
+## Full competitive simulation
+
+Next we conducted a series of simulations to see how positive and negative updating rates relate to pumping behavior and performance. We conducted 100 simulations for every combination of the following parameters:
+
+- Ip: Individual positive sensitivity: 1, 5
+- In: Individual negative sensitivity: 1, 5
+- Cn: Competitive negative sensitivity: 0, 1, 5, 10
+- r: Round length: 1, 10, 20
+
+We set the starting mean pumping rate $p_{\mu}$ to 20 and the competitive positive sensitivity $Cn$ to 0 for all agents. 
+
+```{r eval = FALSE, echo = FALSE}
+# COMPETITIVE BART SIMULATION
+# Result is comp.sim.dm
+
+# Competitive simulation design matrix
+comp.sim.dm <- expand.grid(my.comp.neg.ur = c(0, 1, 5, 10),     # Player A Cn
+                           comp.comp.neg.ur = c(0, 1, 5, 10),   # Player B Cn
+                           my.comp.pos.ur = 0,                  # Player A Cp
+                           comp.comp.pos.ur = 0,                # Player B Cp
+                           my.ind.pos.ur = c(1),             # Player A Ip
+                           comp.ind.pos.ur = c(1),           # Player B Ip
+                           my.ind.neg.ur = c(1, 5),             # Player A In
+                           comp.ind.neg.ur = c(1, 5),           # Player B In
+                           ff = c(1, 10, 20),                   # r (round length)
+                           sim = 1:250)
+
+comp.sim.dm[c("my.target.mean", "my.target.sd", "my.pop.mean", "my.points",
+              "comp.target.mean", "comp.target.sd", "comp.pop.mean", "comp.points",
+              "group.points", "win")] <- NA
+
+# Competitive simulation function
+comp.sim.fun <- function(i) {
+  
+    my.comp.pos.ur.i <- comp.sim.dm$my.comp.pos.ur[i]
+    comp.comp.pos.ur.i <- comp.sim.dm$comp.comp.pos.ur[i]
+    my.comp.neg.ur.i <- comp.sim.dm$my.comp.neg.ur[i]
+    comp.comp.neg.ur.i <- comp.sim.dm$comp.comp.neg.ur[i]
+    my.ind.pos.ur.i <- comp.sim.dm$my.ind.pos.ur[i]
+    comp.ind.pos.ur.i <- comp.sim.dm$comp.ind.pos.ur[i]
+    my.ind.neg.ur.i <- comp.sim.dm$my.ind.neg.ur[i]
+    comp.ind.neg.ur.i <- comp.sim.dm$comp.ind.neg.ur[i]
+    ff.i <- comp.sim.dm$ff[i]
+  
+  result.i <- cbart.sim(ind.pos.ur = c(my.ind.pos.ur.i, comp.ind.pos.ur.i),
+                        ind.neg.ur = c(my.ind.neg.ur.i, comp.ind.neg.ur.i),
+                        comp.pos.ur = c(my.comp.pos.ur.i, comp.comp.pos.ur.i),
+                        comp.neg.ur = c(my.comp.neg.ur.i, comp.comp.neg.ur.i),
+                        ff = ff.i)
+  
+  my.target.mean.i <- mean(result.i[[1]]$p.target)
+  my.target.sd.i <- sd(result.i[[1]]$p.target)
+  my.pop.mean.i <- mean(result.i[[1]]$pop)
+  my.points.i <- sum(result.i[[1]]$points)
+  
+  comp.target.mean.i <- mean(result.i[[2]]$p.target)
+  comp.target.sd.i <- sd(result.i[[2]]$p.target)
+  comp.pop.mean.i <- mean(result.i[[2]]$pop)
+  comp.points.i <- sum(result.i[[2]]$points)
+  
+  group.points.i <- my.points.i + comp.points.i
+  
+  if(my.points.i > comp.points.i) {win.i <- 1}
+  if(my.points.i < comp.points.i) {win.i <- 0}
+  if(my.points.i == comp.points.i) {win.i <- NA}
+
+  return(c(my.target.mean.i, my.target.sd.i, my.pop.mean.i, my.points.i,
+          comp.target.mean.i, comp.target.sd.i, comp.pop.mean.i, comp.points.i,
+          group.points.i, win.i))
+  
+}
+
+# Run simulation
+library(snowfall)
+snowfall::sfInit(parallel = TRUE, cpus = 8)
+snowfall::sfExportAll()
+sim.result.ls <- snowfall::sfClusterApplySR(1:nrow(comp.sim.dm), fun = comp.sim.fun, perUpdate = 1)
+
+comp.sim.dm[c("my.target.mean", "my.target.sd", "my.pop.mean", "my.points",
+              "comp.target.mean", "comp.target.sd", "comp.pop.mean", "comp.points",
+              "group.points", "win")] <- matrix(unlist(sim.result.ls), nrow = nrow(comp.sim.dm), ncol = 10, byrow = TRUE)
+
+# Save result
+save(comp.sim.dm, file = paste0(rprojroot::is_rstudio_project$find_file(),"/data/comp_sim_dm.RData"))
+```
+
+
+
+```{r echo = FALSE, eval = TRUE}
+# AGGREGATE COMPETITIVE SIMULATION RESULTS
+load(paste0(rprojroot::is_rstudio_project$find_file(),"/data/comp_sim_dm.RData"))
+
+# Aggregated data in comp.sim.agg
+comp.sim.agg <- comp.sim.dm %>% 
+  group_by(my.ind.pos.ur, my.ind.neg.ur,
+           comp.ind.pos.ur, comp.ind.neg.ur,
+           my.comp.neg.ur, comp.comp.neg.ur, 
+           my.comp.pos.ur, comp.comp.pos.ur, ff) %>%
+  summarise(
+    my.points.mean = mean(my.points),
+    my.target.mean = mean(my.target.mean),
+    comp.points.mean= mean(comp.points),
+    comp.target.mean = mean(comp.target.mean),
+    win.mean = mean(win, na.rm = TRUE),
+    group.points.mean = mean(group.points),
+    my.pop.mean = mean(my.pop.mean),
+    comp.pop.mean = mean(comp.pop.mean),
+    N = n()
+  )
+```
+
+
+We split the results using three different dependent variables, the probability of winning (e.g.; earning more points across all 100 balloons than one's opponent), one's average points earned, and the average *group* points earned. 
+
+
+### p(Win)
+
+First, we calculated the proportion of games that a player won. We find that agents have the highest win likelihoods the higher their $Cn$ values are, and the lower their competitor's $Cn$ values are. Additionally, the fewer balloons there are per round, the larger the effect is. For example, when an agent has a $Cn$ value of 5 and his competitor has a $Cn$ value of 0, for a round length of 1, then the agent has a win probability of 97%.
+
+```{r fig.width = 10, fig.height = 4}
+heat.fun(formula = win.mean ~ my.comp.neg.ur + comp.comp.neg.ur + ff,
+          data = subset(comp.sim.agg, 
+                          my.ind.pos.ur == 1 & 
+                          my.ind.neg.ur == 5 & 
+                          comp.ind.pos.ur == 1 &
+                          comp.ind.neg.ur == 5), 
+                        main = "p(Win)", rounding = 2)
+```
+
+
+### Individual points
+
+Next, we calculated the mean number of points that individuals earned. Here, we find that agents earn the most points when *both* agents and their competitors have moderate to high positive $Cn$ values. Additionally, the fewer games there are per round, the better both agents and their competitors perform.
+
+```{r, eval = TRUE, echo = FALSE,  fig.width = 10, fig.height = 4}
+heat.fun(formula = my.points.mean ~ my.comp.neg.ur + comp.comp.neg.ur + ff,
+          data = subset(comp.sim.agg, 
+                          my.ind.pos.ur == 1 & 
+                          my.ind.neg.ur == 5 & 
+                          comp.ind.pos.ur == 1 &
+                          comp.ind.neg.ur == 5), main = "Individual mean Points")
+```
+
+
+### Group points
+
+Finally, we calculated the total number of points earned by the *group*. Because we've already seen in the individual points case that both agents and their competitors perform the best with similar parameter values, we should expect the same results for group points.
+
+```{r fig.width = 10, fig.height = 4}
+heat.fun(formula = group.points.mean ~ my.comp.neg.ur + comp.comp.neg.ur + ff,
+          subset(comp.sim.agg, 
+                          my.ind.pos.ur == 1 & 
+                          my.ind.neg.ur == 5 & 
+                          comp.ind.pos.ur == 1 &
+                          comp.ind.neg.ur == 5), main = "Group Points")
+
+```
+

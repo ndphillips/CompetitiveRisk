@@ -1,0 +1,21 @@
+{
+    "collab_server" : "",
+    "contents" : "---\ntitle: \"cRieskamp\"\nauthor: \"Nathaniel Phillips\"\ndate: \"20 April 2017\"\noutput: html_document\n---\n\n```{r setup, include=FALSE}\nknitr::opts_chunk$set(echo = FALSE, fig.align='center')\nsetwd(rprojroot::is_rstudio_project$find_file())\nload(\"data/rieskamp.RData\")\n\nlibrary(dplyr)\n```\n\n\n### Rieskamp 2008 gambles\n\n",
+    "created" : 1492679624256.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3253008450",
+    "id" : "5A61B022",
+    "lastKnownWriteTime" : 1492692147,
+    "last_content_update" : 1492692147367,
+    "path" : "~/Dropbox/manuscripts/CompetitiveBART/rmds/cRieskamp.Rmd",
+    "project_path" : "rmds/cRieskamp.Rmd",
+    "properties" : {
+        "tempName" : "Untitled2"
+    },
+    "relative_order" : 7,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

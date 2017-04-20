@@ -1,0 +1,18 @@
+---
+title: "cRieskamp"
+author: "Nathaniel Phillips"
+date: "20 April 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align='center')
+setwd(rprojroot::is_rstudio_project$find_file())
+load("data/rieskamp.RData")
+
+library(dplyr)
+```
+
+
+### Rieskamp 2008 gambles
+

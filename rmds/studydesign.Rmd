@@ -1,0 +1,48 @@
+---
+title: "Competition and Risky Decision Making"
+author: "Nathaniel Phillips"
+date: "4 April 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+## Current Study Design
+
+
+###Between:
+
+- 3 tasks
+    - Holt and Laurey
+        - 10 2AFC
+    - BART
+        - 50 Balloons, Max pumps = 20
+    - "Investment task" using Rieskamp 2008 Gambles (which is really just repeated decisions between risky gambles.)
+        - 180 Gambles
+    
+- Competitive bonus (only for competitive social condition)
+    - Small: e.g., 10\% of average individual earnings)
+    - Medium: eg., 50\% of individual earnings)
+    - Extreme: All or nothing contest
+
+###Within:
+
+- Social condition
+    - Solitary: Only individual rewards matter
+    - Competitive: Competitive bonus matters
+    
+- Order
+    - Solitary then competitive
+    - Competitive then solitary
+
+Measures:
+
+- Change in risk taking behavior between solitary and competitive condition
+- Effect of magnitude of competitive bonus.
+
+
+#### 4 April 2017
+
+- For each H&L gamble pair, calculate a game theoretic equilibrium
+- Then, try the same giving a risk neutral player playing against a risk-seeking player
